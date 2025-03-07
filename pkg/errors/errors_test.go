@@ -15,14 +15,19 @@ func TestError(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "error without metadata",
+			name:     "error without wrapping",
 			err:      errors.New("foo"),
 			expected: "foo",
 		},
 		{
-			name:     "error with metadata",
+			name:     "error with wrapped with metadata",
 			err:      WithMetadata(errors.New("foo"), "key", "value"),
 			expected: "foo",
+		},
+		{
+			name:     "error with wrapped with custom message",
+			err:      fmt.Errorf("bar: %w", errors.New("foo")),
+			expected: "bar: foo",
 		},
 	}
 	for _, tc := range testCases {
@@ -34,277 +39,148 @@ func TestError(t *testing.T) {
 
 func TestErrWrapper_Extend(t *testing.T) {
 	// create error context with some metadata
-	errContext := Context("k1", "v1")
+	errMeta := Metadata("k1", "v1")
 	// extend the error context with additional metadata
-	extendedContext := errContext.Extend("k2", "v2")
+	extendedMetadata := errMeta.Extend("k2", "v2")
 	// verify that the extended context contains both original and new metadata
-	require.Equal(t, []any{"k1", "v1", "k2", "v2"}, extendedContext.metadata)
-}
-
-func TestErrWrapper_With(t *testing.T) {
-	testCases := []struct {
-		name        string
-		providedErr error
-		wrapper     *errWrapper
-		expectedErr error
-	}{
-		{
-			name:        "when provided error is nil",
-			providedErr: nil,
-			wrapper:     &errWrapper{},
-			expectedErr: nil,
-		},
-		{
-			name:        "empty wrapper",
-			providedErr: errors.New("foo"),
-			wrapper:     &errWrapper{},
-			expectedErr: &errWrapper{
-				err: errors.New("foo"),
-			},
-		},
-		{
-			name:        "wrapper with metadata",
-			providedErr: errors.New("foo"),
-			wrapper: &errWrapper{
-				metadata: []any{"key", "value"},
-			},
-			expectedErr: &errWrapper{
-				err:      errors.New("foo"),
-				metadata: []any{"key", "value"},
-			},
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			actualErr := tc.wrapper.With(tc.providedErr)
-			require.Equal(t, tc.expectedErr, actualErr)
-		})
-	}
-}
-
-func TestErrWrapper_WithMetadata(t *testing.T) {
-	fooError := errors.New("foo")
-	barError := errors.New("bar")
-	testCases := []struct {
-		name     string
-		current  *errWrapper
-		metadata []any
-		err      error
-		expected *errWrapper
-	}{
-		{
-			name:     "when wrapper is nil",
-			current:  nil,
-			err:      nil,
-			metadata: []any{"key", "value"},
-			expected: nil,
-		},
-		{
-			name:     "when error is nil",
-			current:  &errWrapper{},
-			err:      nil,
-			metadata: []any{"key", "value"},
-			expected: nil,
-		},
-		{
-			name:     "when current wrapper is empty",
-			err:      fooError,
-			current:  &errWrapper{},
-			metadata: nil,
-			expected: &errWrapper{
-				err:      fooError,
-				metadata: []any{},
-			},
-		},
-		{
-			name: "when current wrapper has metadata",
-			err:  fooError,
-			current: &errWrapper{
-				metadata: []any{"oldKey", "oldValue"},
-			},
-			metadata: nil,
-			expected: &errWrapper{
-				err:      fooError,
-				metadata: []any{"oldKey", "oldValue"},
-			},
-		},
-		{
-			name: "when provided metadata is empty",
-			err:  fooError,
-			current: &errWrapper{
-				metadata: []any{"oldKey", "oldValue"},
-			},
-			metadata: []any{},
-			expected: &errWrapper{
-				err:      fooError,
-				metadata: []any{"oldKey", "oldValue"},
-			},
-		},
-		{
-			name:     "when provided metadata is not empty and current wrapper is empty",
-			err:      fooError,
-			current:  &errWrapper{},
-			metadata: []any{"newKey", "newValue"},
-			expected: &errWrapper{
-				err:      fooError,
-				metadata: []any{"newKey", "newValue"},
-			},
-		},
-		{
-			name: "when provided metadata is not empty and current wrapper has metadata",
-			err:  fooError,
-			current: &errWrapper{
-				metadata: []any{"oldKey", "oldValue"},
-			},
-			metadata: []any{"newKey", "newValue"},
-			expected: &errWrapper{
-				err:      fooError,
-				metadata: []any{"oldKey", "oldValue", "newKey", "newValue"},
-			},
-		},
-		{
-			name: "when current wrapper has error and metadata",
-			err:  fooError,
-			current: &errWrapper{
-				err:      barError,
-				metadata: []any{"oldKey", "oldValue"},
-			},
-			metadata: []any{"newKey", "newValue"},
-			expected: &errWrapper{
-				err:      fooError,
-				metadata: []any{"oldKey", "oldValue", "newKey", "newValue"},
-			},
-		},
-		{
-			name: "when current metadata misses a value",
-			err:  fooError,
-			current: &errWrapper{
-				metadata: []any{"oldKey"},
-			},
-			metadata: []any{"newKey", "newValue"},
-			expected: &errWrapper{
-				err:      fooError,
-				metadata: []any{"oldKey", "<missing>", "newKey", "newValue"},
-			},
-		},
-		{
-			name: "when provided metadata misses a value",
-			err:  fooError,
-			current: &errWrapper{
-				metadata: []any{"oldKey", "oldValue"},
-			},
-			metadata: []any{"newKey"},
-			expected: &errWrapper{
-				err:      fooError,
-				metadata: []any{"oldKey", "oldValue", "newKey", "<missing>"},
-			},
-		},
-		{
-			name: "when provided error is already wrapped with metadata",
-			err:  WithMetadata(fooError, "key", "value"),
-			current: &errWrapper{
-				metadata: []any{"oldKey", "oldValue"},
-			},
-			metadata: []any{"newKey", "newValue"},
-			expected: &errWrapper{
-				err:      WithMetadata(fooError, "key", "value"),
-				metadata: []any{"oldKey", "oldValue", "newKey", "newValue"},
-			},
-		},
-		{
-			name: "when provided error is already wrapped with custom message",
-			err:  fmt.Errorf("bar: %w", fooError),
-			current: &errWrapper{
-				metadata: []any{"oldKey", "oldValue"},
-			},
-			metadata: []any{"newKey", "newValue"},
-			expected: &errWrapper{
-				err:      fmt.Errorf("bar: %w", fooError),
-				metadata: []any{"oldKey", "oldValue", "newKey", "newValue"},
-			},
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			actual := tc.current.WithMetadata(tc.err, tc.metadata...)
-			if tc.expected == nil {
-				require.NoError(t, actual)
-			} else {
-				require.Error(t, actual)
-				require.Equal(t, tc.expected, actual)
-			}
-		})
-	}
+	require.EqualValues(t, []string{"k1", "v1", "k2", "v2"}, extendedMetadata)
 }
 
 func TestWithMetadata(t *testing.T) {
 	fooError := errors.New("foo")
 	testCases := []struct {
-		name     string
-		metadata []any
-		err      error
-		expected *errWrapper
+		name        string
+		curMetadata errorMetadata
+		newMetadata []string
+		err         error
+		expected    *errWithMetadata
 	}{
 		{
-			name:     "when error is nil",
-			err:      nil,
-			metadata: []any{"key", "value"},
-			expected: nil,
+			name:        "when error is nil",
+			err:         nil,
+			curMetadata: errorMetadata{"k1", "v1"},
+			newMetadata: []string{"k2", "v2"},
+			expected:    nil,
 		},
 		{
-			name:     "when provided metadata is empty",
-			err:      fooError,
-			metadata: []any{},
-			expected: &errWrapper{
+			name:        "when current metadata is nil",
+			err:         fooError,
+			curMetadata: nil,
+			newMetadata: []string{"k2", "v2"},
+			expected: &errWithMetadata{
 				err:      fooError,
-				metadata: []any{},
+				metadata: []string{"k2", "v2"},
 			},
 		},
 		{
-			name:     "when provided metadata is not empty",
-			err:      fooError,
-			metadata: []any{"newKey", "newValue"},
-			expected: &errWrapper{
+			name:        "when current metadata is empty",
+			err:         fooError,
+			curMetadata: errorMetadata{},
+			newMetadata: []string{"k2", "v2"},
+			expected: &errWithMetadata{
 				err:      fooError,
-				metadata: []any{"newKey", "newValue"},
+				metadata: []string{"k2", "v2"},
 			},
 		},
 		{
-			name:     "when provided metadata misses a value",
-			err:      fooError,
-			metadata: []any{"newKey"},
-			expected: &errWrapper{
+			name:        "when new metadata is nil",
+			err:         fooError,
+			curMetadata: errorMetadata{"k1", "v1"},
+			newMetadata: nil,
+			expected: &errWithMetadata{
 				err:      fooError,
-				metadata: []any{"newKey", "<missing>"},
+				metadata: []string{"k1", "v1"},
 			},
 		},
 		{
-			name:     "when provided error is already wrapped with metadata",
-			err:      WithMetadata(fooError, "key", "value"),
-			metadata: []any{"newKey", "newValue"},
-			expected: &errWrapper{
-				err:      WithMetadata(fooError, "key", "value"),
-				metadata: []any{"newKey", "newValue"},
+			name:        "when new metadata is empty",
+			err:         fooError,
+			curMetadata: errorMetadata{"k1", "v1"},
+			newMetadata: []string{},
+			expected: &errWithMetadata{
+				err:      fooError,
+				metadata: []string{"k1", "v1"},
 			},
 		},
 		{
-			name:     "when provided error is already wrapped with custom message",
-			err:      fmt.Errorf("bar: %w", fooError),
-			metadata: []any{"newKey", "newValue"},
-			expected: &errWrapper{
+			name:        "when both current and new metadata are nil",
+			err:         fooError,
+			curMetadata: nil,
+			newMetadata: nil,
+			expected: &errWithMetadata{
+				err:      fooError,
+				metadata: []string{},
+			},
+		},
+		{
+			name:        "when both current and new metadata are not empty",
+			err:         fooError,
+			curMetadata: errorMetadata{"k1", "v1"},
+			newMetadata: []string{"k2", "v2"},
+			expected: &errWithMetadata{
+				err:      fooError,
+				metadata: []string{"k1", "v1", "k2", "v2"},
+			},
+		},
+		{
+			name:        "when current metadata misses a value",
+			err:         fooError,
+			curMetadata: errorMetadata{"k1"},
+			newMetadata: []string{"k2", "v2"},
+			expected: &errWithMetadata{
+				err:      fooError,
+				metadata: []string{"k1", "<missing>", "k2", "v2"},
+			},
+		},
+		{
+			name:        "when new metadata misses a value",
+			err:         fooError,
+			curMetadata: errorMetadata{"k1", "v1"},
+			newMetadata: []string{"k2"},
+			expected: &errWithMetadata{
+				err:      fooError,
+				metadata: []string{"k1", "v1", "k2", "<missing>"},
+			},
+		},
+		{
+			name:        "when both current and new metadata misses a value",
+			err:         fooError,
+			curMetadata: errorMetadata{"k1"},
+			newMetadata: []string{"k2"},
+			expected: &errWithMetadata{
+				err:      fooError,
+				metadata: []string{"k1", "<missing>", "k2", "<missing>"},
+			},
+		},
+		{
+			name:        "when provided error is already wrapped with metadata",
+			err:         WithMetadata(fooError, "k0", "v0"),
+			curMetadata: errorMetadata{"k1", "v1"},
+			newMetadata: []string{"k2", "v2"},
+			expected: &errWithMetadata{
+				err:      WithMetadata(fooError, "k0", "v0"),
+				metadata: []string{"k1", "v1", "k2", "v2"},
+			},
+		},
+		{
+			name:        "when provided error is already wrapped with custom message",
+			err:         fmt.Errorf("bar: %w", fooError),
+			curMetadata: errorMetadata{"k1", "v1"},
+			newMetadata: []string{"k2", "v2"},
+			expected: &errWithMetadata{
 				err:      fmt.Errorf("bar: %w", fooError),
-				metadata: []any{"newKey", "newValue"},
+				metadata: []string{"k1", "v1", "k2", "v2"},
 			},
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual := WithMetadata(tc.err, tc.metadata...)
+			actual := WithMetadata(tc.err, tc.curMetadata.Extend(tc.newMetadata...)...)
 			if tc.expected == nil {
 				require.NoError(t, actual)
 			} else {
 				require.Error(t, actual)
-				require.Equal(t, tc.expected, actual)
+				require.EqualValues(t, tc.expected, actual)
 			}
 		})
 	}
