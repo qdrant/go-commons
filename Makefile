@@ -46,8 +46,8 @@ lint: $(GCI) ## Run linters.
 	bash -c 'files=$$(gofmt -l .) && echo $$files && [ -z "$$files" ]'
 	golangci-lint run
 
-.PHONY: test
-test: ## Run unit tests.
+.PHONY: test_unit
+test_unit: ## Run unit tests.
 	go test ./... -coverprofile cover.out
 
 $(GO_IMPORTS): $(LOCALBIN)
