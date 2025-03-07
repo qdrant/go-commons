@@ -38,7 +38,7 @@ func TestErrWrapper_Extend(t *testing.T) {
 	// extend the error context with additional metadata
 	extendedContext := errContext.Extend("k2", "v2")
 	// verify that the extended context contains both original and new metadata
-	require.Equal(t, extendedContext.metadata, []any{"k1", "v1", "k2", "v2"})
+	require.Equal(t, []any{"k1", "v1", "k2", "v2"}, extendedContext.metadata)
 }
 
 func TestErrWrapper_With(t *testing.T) {

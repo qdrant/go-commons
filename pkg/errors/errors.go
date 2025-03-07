@@ -37,7 +37,7 @@ func GetMetadata(err error) []any {
 	for err != nil {
 		// If current error is wrapped with our errWrapper,
 		// we will add its metadata to our metadata store
-		if e, ok := err.(*errWrapper); ok {
+		if e, ok := err.(*errWrapper); ok { // nolint: errorlint
 			// merge e.metadata into metadata
 			metadata = append(metadata, e.metadata...)
 		}
