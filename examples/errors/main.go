@@ -19,7 +19,7 @@ func main() {
 
 func someCodeProducesError() error {
 	// root wrapper that include function name as context
-	errMetadata := errhelper.Metadata("function", "someCodeProducesError")
+	errMetadata := errhelper.Metadata{"function", "someCodeProducesError"}
 
 	// another block of code that can produce error
 	err := doSomething()

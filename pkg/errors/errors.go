@@ -27,15 +27,10 @@ func (w *errWithMetadata) Unwrap() error {
 	return w.err
 }
 
-type errorMetadata []string
-
-// Metadata returns a new metadata container with the provided key value pairs
-func Metadata(keyValues ...string) errorMetadata {
-	return keyValues
-}
+type Metadata []string
 
 // Extend returns a new metadata container with combined key value pairs from current metadata and provided key value pairs
-func (m *errorMetadata) Extend(keyValues ...string) errorMetadata {
+func (m *Metadata) Extend(keyValues ...string) Metadata {
 	if m == nil {
 		return keyValues
 	}
@@ -112,58 +107,4 @@ func addPaddingForMissingValue(keyValues []string) []string {
 		newKV = append(newKV, "<missing>")
 	}
 	return newKV
-}
-
-// nonRetryableError is a wrapper for errors that resulted from an operation that should not be retried
-type nonRetryableError struct {
-	err error
-}
-
-// Error returns the original error message,
-func (e *nonRetryableError) Error() string {
-	return e.err.Error()
-}
-
-// Unwrap returns the original error.
-// It allows the error to be compatible with standard error unwrapping mechanism
-func (e *nonRetryableError) Unwrap() error {
-	return e.err
-}
-
-// AsNonRetryableError wraps an error as non-retryable error
-func AsNonRetryableError(err error, metadata ...string) error {
-	return &nonRetryableError{err: WithMetadata(err, metadata...)}
-}
-
-// IsNonRetryableError checks if the error is a non-retryable or not
-func IsNonRetryableError(err error) bool {
-	var e *nonRetryableError
-	return errors.As(err, &e)
-}
-
-// retryableError is a wrapper for errors that resulted from an operation that can be retried
-type retryableError struct {
-	err error
-}
-
-// Error returns the original error message,
-func (e *retryableError) Error() string {
-	return e.err.Error()
-}
-
-// Unwrap returns the original error.
-// It allows the error to be compatible with standard error unwrapping mechanism
-func (e *retryableError) Unwrap() error {
-	return e.err
-}
-
-// AsRetryableError wraps an error as retryable error
-func AsRetryableError(err error, metadata ...string) error {
-	return &retryableError{err: WithMetadata(err, metadata...)}
-}
-
-// IsRetryableError checks if the error is retryable or not
-func IsRetryableError(err error) bool {
-	var e *retryableError
-	return errors.As(err, &e)
 }

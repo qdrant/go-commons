@@ -39,7 +39,7 @@ func TestError(t *testing.T) {
 
 func TestErrWrapper_Extend(t *testing.T) {
 	// create error context with some metadata
-	errMeta := Metadata("k1", "v1")
+	errMeta := Metadata{"k1", "v1"}
 	// extend the error context with additional metadata
 	extendedMetadata := errMeta.Extend("k2", "v2")
 	// verify that the extended context contains both original and new metadata
@@ -50,7 +50,7 @@ func TestWithMetadata(t *testing.T) {
 	fooError := errors.New("foo")
 	testCases := []struct {
 		name        string
-		curMetadata errorMetadata
+		curMetadata Metadata
 		newMetadata []string
 		err         error
 		expected    *errWithMetadata
@@ -58,7 +58,7 @@ func TestWithMetadata(t *testing.T) {
 		{
 			name:        "when error is nil",
 			err:         nil,
-			curMetadata: errorMetadata{"k1", "v1"},
+			curMetadata: Metadata{"k1", "v1"},
 			newMetadata: []string{"k2", "v2"},
 			expected:    nil,
 		},
@@ -75,7 +75,7 @@ func TestWithMetadata(t *testing.T) {
 		{
 			name:        "when current metadata is empty",
 			err:         fooError,
-			curMetadata: errorMetadata{},
+			curMetadata: Metadata{},
 			newMetadata: []string{"k2", "v2"},
 			expected: &errWithMetadata{
 				err:      fooError,
@@ -85,7 +85,7 @@ func TestWithMetadata(t *testing.T) {
 		{
 			name:        "when new metadata is nil",
 			err:         fooError,
-			curMetadata: errorMetadata{"k1", "v1"},
+			curMetadata: Metadata{"k1", "v1"},
 			newMetadata: nil,
 			expected: &errWithMetadata{
 				err:      fooError,
@@ -95,7 +95,7 @@ func TestWithMetadata(t *testing.T) {
 		{
 			name:        "when new metadata is empty",
 			err:         fooError,
-			curMetadata: errorMetadata{"k1", "v1"},
+			curMetadata: Metadata{"k1", "v1"},
 			newMetadata: []string{},
 			expected: &errWithMetadata{
 				err:      fooError,
@@ -115,7 +115,7 @@ func TestWithMetadata(t *testing.T) {
 		{
 			name:        "when both current and new metadata are not empty",
 			err:         fooError,
-			curMetadata: errorMetadata{"k1", "v1"},
+			curMetadata: Metadata{"k1", "v1"},
 			newMetadata: []string{"k2", "v2"},
 			expected: &errWithMetadata{
 				err:      fooError,
@@ -125,7 +125,7 @@ func TestWithMetadata(t *testing.T) {
 		{
 			name:        "when current metadata misses a value",
 			err:         fooError,
-			curMetadata: errorMetadata{"k1"},
+			curMetadata: Metadata{"k1"},
 			newMetadata: []string{"k2", "v2"},
 			expected: &errWithMetadata{
 				err:      fooError,
@@ -135,7 +135,7 @@ func TestWithMetadata(t *testing.T) {
 		{
 			name:        "when new metadata misses a value",
 			err:         fooError,
-			curMetadata: errorMetadata{"k1", "v1"},
+			curMetadata: Metadata{"k1", "v1"},
 			newMetadata: []string{"k2"},
 			expected: &errWithMetadata{
 				err:      fooError,
@@ -145,7 +145,7 @@ func TestWithMetadata(t *testing.T) {
 		{
 			name:        "when both current and new metadata misses a value",
 			err:         fooError,
-			curMetadata: errorMetadata{"k1"},
+			curMetadata: Metadata{"k1"},
 			newMetadata: []string{"k2"},
 			expected: &errWithMetadata{
 				err:      fooError,
@@ -155,7 +155,7 @@ func TestWithMetadata(t *testing.T) {
 		{
 			name:        "when provided error is already wrapped with metadata",
 			err:         WithMetadata(fooError, "k0", "v0"),
-			curMetadata: errorMetadata{"k1", "v1"},
+			curMetadata: Metadata{"k1", "v1"},
 			newMetadata: []string{"k2", "v2"},
 			expected: &errWithMetadata{
 				err:      WithMetadata(fooError, "k0", "v0"),
@@ -165,7 +165,7 @@ func TestWithMetadata(t *testing.T) {
 		{
 			name:        "when provided error is already wrapped with custom message",
 			err:         fmt.Errorf("bar: %w", fooError),
-			curMetadata: errorMetadata{"k1", "v1"},
+			curMetadata: Metadata{"k1", "v1"},
 			newMetadata: []string{"k2", "v2"},
 			expected: &errWithMetadata{
 				err:      fmt.Errorf("bar: %w", fooError),
@@ -296,106 +296,6 @@ func TestGetMetadata(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			actual := GetMetadata(tc.err)
 			require.Equal(t, tc.expected, actual)
-		})
-	}
-}
-
-func TestIsNonRetryableError(t *testing.T) {
-	testCases := []struct {
-		name           string
-		err            error
-		isNonRetryable bool
-	}{
-		{
-			name:           "error without wrapping",
-			err:            errors.New("foo"),
-			isNonRetryable: false,
-		},
-		{
-			name:           "error wrapped with message",
-			err:            fmt.Errorf("foo: %w", errors.New("bar")),
-			isNonRetryable: false,
-		},
-		{
-			name:           "error wrapped with metadata",
-			err:            WithMetadata(errors.New("foo"), "key", "value"),
-			isNonRetryable: false,
-		},
-		{
-			name:           "non-retryable error wrapped with metadata",
-			err:            AsNonRetryableError(errors.New("foo"), "key", "value"),
-			isNonRetryable: true,
-		},
-		{
-			name:           "non-retryable error without wrapping",
-			err:            &nonRetryableError{err: errors.New("foo")},
-			isNonRetryable: true,
-		},
-		{
-			name:           "non-retryable error in the error chain",
-			err:            fmt.Errorf("foo: %w", &nonRetryableError{err: errors.New("bar")}),
-			isNonRetryable: true,
-		},
-		{
-			name:           "retryable error",
-			err:            &retryableError{err: errors.New("foo")},
-			isNonRetryable: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.isNonRetryable, IsNonRetryableError(tc.err))
-		})
-	}
-}
-
-func TestIsRetryableError(t *testing.T) {
-	testCases := []struct {
-		name        string
-		err         error
-		isRetryable bool
-	}{
-		{
-			name:        "error without wrapping",
-			err:         errors.New("foo"),
-			isRetryable: false,
-		},
-		{
-			name:        "error wrapped with message",
-			err:         fmt.Errorf("foo: %w", errors.New("bar")),
-			isRetryable: false,
-		},
-		{
-			name:        "error wrapped with metadata",
-			err:         WithMetadata(errors.New("foo"), "key", "value"),
-			isRetryable: false,
-		},
-		{
-			name:        "retryable error wrapped with metadata",
-			err:         AsRetryableError(errors.New("foo"), "key", "value"),
-			isRetryable: true,
-		},
-		{
-			name:        "retryable error without wrapping",
-			err:         &retryableError{err: errors.New("foo")},
-			isRetryable: true,
-		},
-		{
-			name:        "retryable error in the error chain",
-			err:         fmt.Errorf("foo: %w", &retryableError{err: errors.New("bar")}),
-			isRetryable: true,
-		},
-		{
-			name:        "non-retryable error",
-			err:         &nonRetryableError{err: errors.New("foo")},
-			isRetryable: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.isRetryable, IsRetryableError(tc.err))
 		})
 	}
 }
