@@ -4,6 +4,8 @@
 # IDE files
 .idea/
 .vscode/
+# Vendors
+vendor/
 # Binaries for programs and plugins
 bin/
 *.exe
