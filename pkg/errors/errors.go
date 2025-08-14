@@ -6,6 +6,8 @@ package errors
 import (
 	"errors"
 	"reflect"
+
+	"google.golang.org/grpc/status"
 )
 
 // errWithMetadata represents an error with attached metadata
@@ -20,6 +22,25 @@ type errWithMetadata struct {
 // ensuring compatibility with the standard error interface.
 func (w *errWithMetadata) Error() string {
 	return w.err.Error()
+}
+
+// GRPCStatus returns the gRPC status of the wrapped error, if it exists.
+// This makes errWithMetadata compatible with gRPC's error handling,
+// allowing it to preserve the original status code and message while
+// carrying additional metadata.
+func (w *errWithMetadata) GRPCStatus() *status.Status {
+	type grpcStatus interface {
+		GRPCStatus() *status.Status
+	}
+	// To properly support wrapped gRPC errors (e.g., via fmt.Errorf),
+	// we need to traverse the error chain to find an error that is a gRPC status.
+	// The target for errors.As must be a non-nil pointer to an interface type or a type that implements error.
+	// We use an interface that matches the gRPC status provider method.
+	var s grpcStatus
+	if errors.As(w.err, &s) {
+		return s.GRPCStatus()
+	}
+	return nil
 }
 
 // Unwrap returns the original error that was wrapped with errWithMetadata instance

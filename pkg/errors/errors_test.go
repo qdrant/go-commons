@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,10 +32,92 @@ func TestError(t *testing.T) {
 			err:      fmt.Errorf("bar: %w", errors.New("foo")),
 			expected: "bar: foo",
 		},
+		{
+			name:     "gRPC status error",
+			err:      status.Error(codes.NotFound, "item not found"),
+			expected: "rpc error: code = NotFound desc = item not found",
+		},
+		{
+			name:     "wrapped gRPC status error",
+			err:      WithMetadata(status.Error(codes.NotFound, "item not found"), "key", "value"),
+			expected: "rpc error: code = NotFound desc = item not found",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.expected, tc.err.Error())
+		})
+	}
+}
+
+func TestGRPCStatus(t *testing.T) {
+	plainErr := errors.New("plain error")
+	grpcErr := status.Error(codes.NotFound, "item not found")
+	expectedGrpcStatus, ok := status.FromError(grpcErr)
+	require.True(t, ok)
+
+	testCases := []struct {
+		name            string
+		err             error
+		expectedMessage string
+		expectedStatus  *status.Status
+		expectOk        bool
+	}{
+		{
+			name:            "nil error",
+			err:             nil,
+			expectedMessage: "",  // A nil error is converted to an OK status, which has an empty message.
+			expectedStatus:  nil, // status.FromError(nil) returns (nil, true), which is treated as OK.
+			expectOk:        true,
+		},
+		{
+			name:            "standard error",
+			err:             plainErr,
+			expectedMessage: "plain error",
+			expectedStatus:  status.New(codes.Unknown, "plain error"),
+			expectOk:        false,
+		},
+		{
+			name:            "gRPC status error",
+			err:             grpcErr,
+			expectedMessage: "item not found",
+			expectedStatus:  expectedGrpcStatus,
+			expectOk:        true,
+		},
+		{
+			name:            "standard error wrapped with metadata",
+			err:             WithMetadata(plainErr, "key", "value"),
+			expectedMessage: "plain error",
+			expectedStatus:  status.New(codes.Unknown, "plain error"),
+			expectOk:        false,
+		},
+		{
+			name:            "gRPC status error wrapped with metadata",
+			err:             WithMetadata(grpcErr, "key", "value"),
+			expectedMessage: "item not found",
+			expectedStatus:  expectedGrpcStatus,
+			expectOk:        true,
+		},
+		{
+			name:            "gRPC status error wrapped with fmt.Errorf then metadata",
+			err:             WithMetadata(fmt.Errorf("wrapped: %w", grpcErr), "key", "value"),
+			expectedMessage: "item not found",
+			expectedStatus:  expectedGrpcStatus,
+			expectOk:        true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			st, ok := status.FromError(tc.err)
+			require.Equal(t, tc.expectOk, ok)
+			require.Equal(t, tc.expectedMessage, status.Convert(tc.err).Message())
+			if tc.expectedStatus == nil {
+				require.Nil(t, st)
+			} else {
+				require.NotNil(t, st)
+				require.Equal(t, tc.expectedStatus.Proto(), st.Proto())
+			}
 		})
 	}
 }
