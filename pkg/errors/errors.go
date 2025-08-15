@@ -13,6 +13,10 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+// QdrantMetadataMarker is a special key used to identify a structpb.Struct
+// in gRPC status details as metadata managed by this package.
+const QdrantMetadataMarker = "__qdrant_metadata__"
+
 // errWithMetadata represents an error with attached metadata
 type errWithMetadata struct {
 	// err is the original error
@@ -79,15 +83,22 @@ func (w *errWithMetadata) GRPCStatus() *status.Status {
 	}
 	// If we successfully converted some metadata, create a struct.
 	if len(metadataMap) > 0 {
+		// Add our marker to identify this struct as our own.
+		metadataMap[QdrantMetadataMarker] = true
 		metadataStruct, err := structpb.NewStruct(metadataMap)
 		if err == nil {
 			// To preserve other details and avoid duplicating metadata, we'll rebuild the details
 			stProto := status.New(baseStatus.Code(), baseStatus.Message()).Proto()
-			// First, collect any details that are not our metadata struct.
+			// First, collect any details that are not our marked metadata struct.
 			for _, detail := range baseStatus.Details() {
-				// We are only interested in details that are not structpb.Struct,
-				// as we are going to replace them with our consolidated metadata struct.
-				if _, ok := detail.(*structpb.Struct); !ok {
+				isOurMetadata := false
+				if s, ok := detail.(*structpb.Struct); ok {
+					if _, exists := s.GetFields()[QdrantMetadataMarker]; exists {
+						isOurMetadata = true
+					}
+				}
+				// Only add if it's not our data
+				if !isOurMetadata {
 					if p, ok := detail.(proto.Message); ok {
 						anyRef, err := anypb.New(p)
 						if err == nil {
@@ -182,8 +193,16 @@ func GetMetadata(err error) []any {
 			st := s.GRPCStatus()
 			for _, detail := range st.Details() {
 				if metadataStruct, ok := detail.(*structpb.Struct); ok {
-					for key, val := range metadataStruct.GetFields() {
-						metadata = append(metadata, key, val.AsInterface())
+					fields := metadataStruct.GetFields()
+					// Only extract from structs that have our marker.
+					if _, hasMarker := fields[QdrantMetadataMarker]; hasMarker {
+						for key, val := range fields {
+							// Don't include the marker itself in the final metadata.
+							if key == QdrantMetadataMarker {
+								continue
+							}
+							metadata = append(metadata, key, val.AsInterface())
+						}
 					}
 				}
 			}
