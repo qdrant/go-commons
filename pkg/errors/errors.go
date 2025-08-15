@@ -55,12 +55,12 @@ func (w *errWithMetadata) GRPCStatus() *status.Status {
 	if grpcStatusError != nil {
 		errToConvert = grpcStatusError
 	}
-	st := status.Convert(errToConvert)
+	baseStatus := status.Convert(errToConvert)
 	// Collect all metadata from the entire error chain, starting from the current error.
 	allMetadata := GetMetadata(w)
 	// If there's no metadata, just return the status.
 	if len(allMetadata) == 0 {
-		return st
+		return baseStatus
 	}
 	// Convert our metadata slice into a map for structpb.
 	metadataMap := make(map[string]any)
@@ -79,6 +79,8 @@ func (w *errWithMetadata) GRPCStatus() *status.Status {
 	if len(metadataMap) > 0 {
 		metadataStruct, err := structpb.NewStruct(metadataMap)
 		if err == nil {
+			// Create a new status with the same code and message, but without the original details.
+			st := status.New(baseStatus.Code(), baseStatus.Message())
 			// Attach the struct as a detail to the status.
 			if stWithDetails, err := st.WithDetails(metadataStruct); err == nil {
 				return stWithDetails
@@ -86,7 +88,7 @@ func (w *errWithMetadata) GRPCStatus() *status.Status {
 		}
 	}
 	// Fallback to returning the original status if metadata couldn't be attached.
-	return st
+	return baseStatus
 }
 
 // Unwrap returns the original error that was wrapped with errWithMetadata instance
@@ -142,36 +144,34 @@ func WithMetadata(err error, keyValues ...any) error {
 
 // GetMetadata returns metadata from the error chain
 // If there is no metadata in the chain, it will return an empty slice
-// It returns []any to make it compatible with structured logging libraries
+// It returns []any to make it compatible with structured logging libraries (like slog, zap, or logr).
 func GetMetadata(err error) []any {
-	metadata := make([]any, 0)
+	if err == nil {
+		return []any{}
+	}
 
-	// We will iterate over all errors in the chain
-	// and merge metadata from all of them
-	for err != nil {
-		// If current error is wrapped with our errWithMetadata,
-		// we will add its metadata to our metadata store
-		if e, ok := err.(*errWithMetadata); ok { // nolint: errorlint
-			metadata = append(metadata, e.metadata...)
-		} else {
-			// This captures metadata from errors that conform to the gRPC status interface,
-			// which is useful for metadata that survives network boundaries.
-			type grpcStatus interface {
-				GRPCStatus() *status.Status
-			}
-			if s, ok := err.(grpcStatus); ok {
-				st := s.GRPCStatus()
-				for _, detail := range st.Details() {
-					if metadataStruct, ok := detail.(*structpb.Struct); ok {
-						for key, val := range metadataStruct.GetFields() {
-							metadata = append(metadata, key, val.AsInterface())
-						}
+	// Recursively get metadata from the wrapped error first. This ensures that
+	// metadata from the innermost error is collected first.
+	metadata := GetMetadata(errors.Unwrap(err))
+
+	// Then, append metadata from the current error level. This way, when the
+	// resulting slice is converted to a map, keys from outer (more recent)
+	// wrappers will overwrite keys from inner wrappers, giving them precedence.
+	// This is compatible with the "last one wins" behavior of most structured loggers.
+	if e, ok := err.(*errWithMetadata); ok { // nolint: errorlint
+		metadata = append(metadata, e.metadata...)
+	} else {
+		// This captures metadata from errors that conform to the gRPC status interface.
+		if s, ok := err.(interface{ GRPCStatus() *status.Status }); ok {
+			st := s.GRPCStatus()
+			for _, detail := range st.Details() {
+				if metadataStruct, ok := detail.(*structpb.Struct); ok {
+					for key, val := range metadataStruct.GetFields() {
+						metadata = append(metadata, key, val.AsInterface())
 					}
 				}
 			}
 		}
-		// move to the next error in the chain
-		err = errors.Unwrap(err)
 	}
 	return metadata
 }
