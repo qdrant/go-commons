@@ -13,9 +13,9 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// QdrantMetadataMarker is a special key used to identify a structpb.Struct
+// qdrantMetadataMarker is a special key used to identify a structpb.Struct
 // in gRPC status details as metadata managed by this package.
-const QdrantMetadataMarker = "__qdrant_metadata__"
+const qdrantMetadataMarker = "__qdrant_metadata__"
 
 // errWithMetadata represents an error with attached metadata
 type errWithMetadata struct {
@@ -84,7 +84,7 @@ func (w *errWithMetadata) GRPCStatus() *status.Status {
 	// If we successfully converted some metadata, create a struct.
 	if len(metadataMap) > 0 {
 		// Add our marker to identify this struct as our own.
-		metadataMap[QdrantMetadataMarker] = true
+		metadataMap[qdrantMetadataMarker] = true
 		metadataStruct, err := structpb.NewStruct(metadataMap)
 		if err == nil {
 			// To preserve other details and avoid duplicating metadata, we'll rebuild the details
@@ -93,7 +93,7 @@ func (w *errWithMetadata) GRPCStatus() *status.Status {
 			for _, detail := range baseStatus.Details() {
 				isOurMetadata := false
 				if s, ok := detail.(*structpb.Struct); ok {
-					if _, exists := s.GetFields()[QdrantMetadataMarker]; exists {
+					if _, exists := s.GetFields()[qdrantMetadataMarker]; exists {
 						isOurMetadata = true
 					}
 				}
@@ -140,7 +140,7 @@ func WithMetadata(err error, keyValues ...any) error {
 		return nil
 	}
 	// try to detect types of provided keyValues and build up proper key value pair
-	metadata := make([]any, 0)
+	flattened := make([]any, 0)
 	for _, kv := range keyValues {
 		t := reflect.TypeOf(kv)
 		switch t.Kind() {
@@ -148,7 +148,7 @@ func WithMetadata(err error, keyValues ...any) error {
 			s := reflect.ValueOf(kv)
 			// We need to use .Interface() to get the actual value, not the reflect.Value
 			for i := 0; i < s.Len(); i++ {
-				metadata = append(metadata, s.Index(i).Interface())
+				flattened = append(flattened, s.Index(i).Interface())
 			}
 		case reflect.Map:
 			// Use reflection to iterate over the map to handle any map type
@@ -156,13 +156,16 @@ func WithMetadata(err error, keyValues ...any) error {
 			v := reflect.ValueOf(kv)
 			iter := v.MapRange()
 			for iter.Next() {
-				metadata = append(metadata, iter.Key().Interface(), iter.Value().Interface())
+				flattened = append(flattened, iter.Key().Interface(), iter.Value().Interface())
 			}
 		default:
-			metadata = append(metadata, kv)
+			flattened = append(flattened, kv)
 		}
 	}
-
+	// Ensure the final metadata slice has an even number of elements
+	// by padding if necessary. This makes the key-value pairing robust.
+	metadata := addPaddingForMissingValue(flattened)
+	// Return
 	return &errWithMetadata{
 		err:      err,
 		metadata: metadata,
@@ -195,10 +198,10 @@ func GetMetadata(err error) []any {
 				if metadataStruct, ok := detail.(*structpb.Struct); ok {
 					fields := metadataStruct.GetFields()
 					// Only extract from structs that have our marker.
-					if _, hasMarker := fields[QdrantMetadataMarker]; hasMarker {
+					if _, hasMarker := fields[qdrantMetadataMarker]; hasMarker {
 						for key, val := range fields {
 							// Don't include the marker itself in the final metadata.
-							if key == QdrantMetadataMarker {
+							if key == qdrantMetadataMarker {
 								continue
 							}
 							metadata = append(metadata, key, val.AsInterface())

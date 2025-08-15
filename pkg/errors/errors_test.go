@@ -53,6 +53,7 @@ func TestError(t *testing.T) {
 }
 
 func TestGRPCStatus(t *testing.T) {
+	// Note adding the qdrantMetadataMarker is for internal testing only, it's transparent for the actual user.
 	plainErr := errors.New("plain error")
 	grpcErr := status.Error(codes.NotFound, "item not found")
 	expectedGrpcStatus, ok := status.FromError(grpcErr)
@@ -60,7 +61,7 @@ func TestGRPCStatus(t *testing.T) {
 	// Create expected status with details for the metadata test
 	metadataStruct, err := structpb.NewStruct(map[string]any{
 		"key":                "value",
-		QdrantMetadataMarker: true,
+		qdrantMetadataMarker: true,
 	})
 	require.NoError(t, err)
 	expectedGrpcStatusWithDetails, err := expectedGrpcStatus.WithDetails(metadataStruct)
@@ -70,7 +71,7 @@ func TestGRPCStatus(t *testing.T) {
 	nestedMetadataMap := map[string]any{
 		"outer_key":          "outer_value",
 		"inner_key":          "inner_value",
-		QdrantMetadataMarker: true,
+		qdrantMetadataMarker: true,
 	}
 	nestedMetadataStruct, err := structpb.NewStruct(nestedMetadataMap)
 	require.NoError(t, err)
@@ -80,7 +81,7 @@ func TestGRPCStatus(t *testing.T) {
 	// Create expected status for reused key test
 	reusedKeyMap := map[string]any{
 		"reused_key":         "outer_value", // The outer value should win
-		QdrantMetadataMarker: true,
+		qdrantMetadataMarker: true,
 	}
 	reusedKeyStruct, err := structpb.NewStruct(reusedKeyMap)
 	require.NoError(t, err)
@@ -92,7 +93,7 @@ func TestGRPCStatus(t *testing.T) {
 	remoteMetaStruct, err := structpb.NewStruct(map[string]any{
 		"remote_key":         "remote_value",
 		"shared_key":         "remote_shared_value",
-		QdrantMetadataMarker: true,
+		qdrantMetadataMarker: true,
 	})
 	require.NoError(t, err)
 	stRemoteWithDetails, err := stRemote.WithDetails(remoteMetaStruct)
@@ -105,7 +106,7 @@ func TestGRPCStatus(t *testing.T) {
 		"remote_key":         "remote_value",
 		"shared_key":         "local_shared_value", // This one overwrites the remote one
 		"local_key":          "local_value",
-		QdrantMetadataMarker: true,
+		qdrantMetadataMarker: true,
 	}
 	finalCombinedStruct, err := structpb.NewStruct(finalCombinedMap)
 	require.NoError(t, err)
@@ -131,7 +132,7 @@ func TestGRPCStatus(t *testing.T) {
 	// Create the expected final status for the preservation test
 	metadataForOtherDetailTest, err := structpb.NewStruct(map[string]any{
 		"request_id":         "xyz-123",
-		QdrantMetadataMarker: true,
+		qdrantMetadataMarker: true,
 	})
 	require.NoError(t, err)
 	// The expected status should have both the original ErrorInfo and the new metadata struct.
@@ -458,7 +459,7 @@ func TestGetMetadata(t *testing.T) {
 	st := status.New(codes.Internal, "internal error")
 	metadataStruct, err := structpb.NewStruct(map[string]any{
 		"grpc_key":           "grpc_value",
-		QdrantMetadataMarker: true,
+		qdrantMetadataMarker: true,
 	})
 	require.NoError(t, err)
 	stWithDetails, err := st.WithDetails(metadataStruct)
