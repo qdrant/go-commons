@@ -8,6 +8,8 @@ import (
 	"reflect"
 
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -79,12 +81,26 @@ func (w *errWithMetadata) GRPCStatus() *status.Status {
 	if len(metadataMap) > 0 {
 		metadataStruct, err := structpb.NewStruct(metadataMap)
 		if err == nil {
-			// Create a new status with the same code and message, but without the original details.
-			st := status.New(baseStatus.Code(), baseStatus.Message())
-			// Attach the struct as a detail to the status.
-			if stWithDetails, err := st.WithDetails(metadataStruct); err == nil {
-				return stWithDetails
+			// To preserve other details and avoid duplicating metadata, we'll rebuild the details
+			stProto := status.New(baseStatus.Code(), baseStatus.Message()).Proto()
+			// First, collect any details that are not our metadata struct.
+			for _, detail := range baseStatus.Details() {
+				// We are only interested in details that are not structpb.Struct,
+				// as we are going to replace them with our consolidated metadata struct.
+				if _, ok := detail.(*structpb.Struct); !ok {
+					if p, ok := detail.(proto.Message); ok {
+						anyRef, err := anypb.New(p)
+						if err == nil {
+							stProto.Details = append(stProto.Details, anyRef)
+						}
+					}
+				}
 			}
+			// Now, append our new, consolidated metadata struct.
+			if anyRef, err := anypb.New(metadataStruct); err == nil {
+				stProto.Details = append(stProto.Details, anyRef)
+			}
+			return status.FromProto(stProto)
 		}
 	}
 	// Fallback to returning the original status if metadata couldn't be attached.
