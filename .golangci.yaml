@@ -1,33 +1,50 @@
-run:
-  timeout: 10m
-issues:
-  exclude-files:
-  - "generated.*\\.go$"
+version: "2"
 linters:
   enable:
-  - gci
-  - goconst
-  - gofmt
-  - goimports
-  - unparam
-  - importas
-  - bodyclose
-  - containedctx
-  - contextcheck
-  - errorlint
-  - nilerr
-  - promlinter
-  - sloglint
-  - testifylint
-  - unparam
-  - usestdlibvars
-linters-settings:
-  gci:
-    sections:
-    - standard # Standard section: captures all standard packages.
-    - default # Default section: contains all imports that could not be matched to another section type.
-    - prefix(github.com/qdrant) # Custom section: groups all imports with the specified Prefix.
-  importas:
-    alias:
-    - pkg: ^k8s\.io/apimachinery/pkg/apis/(\w+)/(v[\w\d]+)$
-      alias: $1$2
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - errorlint
+    - goconst
+    - importas
+    - nilerr
+    - promlinter
+    - sloglint
+    - testifylint
+    - unparam
+    - usestdlibvars
+  settings:
+    importas:
+      alias:
+        - pkg: ^k8s\.io/apimachinery/pkg/apis/(\w+)/(v[\w\d]+)$
+          alias: $1$2
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - generated.*\.go$
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard # Standard section: captures all standard packages.
+        - default # Default section: contains all imports that could not be matched to another section type.
+        - prefix(github.com/qdrant) # Custom section: groups all imports with the specified Prefix.
+  exclusions:
+    generated: lax
+    paths:
+      - generated.*\.go$
+      - third_party$
+      - builtin$
+      - examples$

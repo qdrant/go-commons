@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // errWithMetadata represents an error with attached metadata
@@ -28,19 +29,64 @@ func (w *errWithMetadata) Error() string {
 // This makes errWithMetadata compatible with gRPC's error handling,
 // allowing it to preserve the original status code and message while
 // carrying additional metadata.
+// It achieves this by embedding the metadata into the status Details field
+// as a protobuf Struct.
 func (w *errWithMetadata) GRPCStatus() *status.Status {
-	type grpcStatus interface {
-		GRPCStatus() *status.Status
+	// Get the underlying status. If the wrapped error is not a gRPC status,
+	// it will be converted to one with codes.Unknown.
+	// We need to inspect the error chain to find a potential gRPC status error,
+	// as it might be wrapped by other errors (e.g., using fmt.Errorf).
+	var grpcStatusError error
+	u := w.err
+	for u != nil {
+		// Check if the error can provide a gRPC status.
+		if _, ok := u.(interface{ GRPCStatus() *status.Status }); ok {
+			// To avoid recursion with our own type, we skip errWithMetadata
+			// and continue unwrapping. We are looking for the original gRPC status.
+			if _, isOurType := u.(*errWithMetadata); !isOurType { // nolint: errorlint // errors.As should not be used here
+				grpcStatusError = u
+				break
+			}
+		}
+		u = errors.Unwrap(u)
 	}
-	// To properly support wrapped gRPC errors (e.g., via fmt.Errorf),
-	// we need to traverse the error chain to find an error that is a gRPC status.
-	// The target for errors.As must be a non-nil pointer to an interface type or a type that implements error.
-	// We use an interface that matches the gRPC status provider method.
-	var s grpcStatus
-	if errors.As(w.err, &s) {
-		return s.GRPCStatus()
+	// Check which error to use to get the Status
+	errToConvert := w.err
+	if grpcStatusError != nil {
+		errToConvert = grpcStatusError
 	}
-	return nil
+	st := status.Convert(errToConvert)
+	// Collect all metadata from the entire error chain, starting from the current error.
+	allMetadata := GetMetadata(w)
+	// If there's no metadata, just return the status.
+	if len(allMetadata) == 0 {
+		return st
+	}
+	// Convert our metadata slice into a map for structpb.
+	metadataMap := make(map[string]any)
+	for i := 0; i < len(allMetadata); i += 2 {
+		key, ok := allMetadata[i].(string)
+		if !ok {
+			// Keys must be strings for structpb.
+			continue
+		}
+		if i+1 >= len(allMetadata) {
+			break
+		}
+		metadataMap[key] = allMetadata[i+1]
+	}
+	// If we successfully converted some metadata, create a struct.
+	if len(metadataMap) > 0 {
+		metadataStruct, err := structpb.NewStruct(metadataMap)
+		if err == nil {
+			// Attach the struct as a detail to the status.
+			if stWithDetails, err := st.WithDetails(metadataStruct); err == nil {
+				return stWithDetails
+			}
+		}
+	}
+	// Fallback to returning the original status if metadata couldn't be attached.
+	return st
 }
 
 // Unwrap returns the original error that was wrapped with errWithMetadata instance
@@ -71,13 +117,17 @@ func WithMetadata(err error, keyValues ...any) error {
 		switch t.Kind() {
 		case reflect.Slice:
 			s := reflect.ValueOf(kv)
+			// We need to use .Interface() to get the actual value, not the reflect.Value
 			for i := 0; i < s.Len(); i++ {
-				metadata = append(metadata, s.Index(i))
+				metadata = append(metadata, s.Index(i).Interface())
 			}
 		case reflect.Map:
-			m := kv.(map[any]any)
-			for k, v := range m {
-				metadata = append(metadata, k, v)
+			// Use reflection to iterate over the map to handle any map type
+			// without panicking on type assertion.
+			v := reflect.ValueOf(kv)
+			iter := v.MapRange()
+			for iter.Next() {
+				metadata = append(metadata, iter.Key().Interface(), iter.Value().Interface())
 			}
 		default:
 			metadata = append(metadata, kv)
@@ -103,6 +153,22 @@ func GetMetadata(err error) []any {
 		// we will add its metadata to our metadata store
 		if e, ok := err.(*errWithMetadata); ok { // nolint: errorlint
 			metadata = append(metadata, e.metadata...)
+		} else {
+			// This captures metadata from errors that conform to the gRPC status interface,
+			// which is useful for metadata that survives network boundaries.
+			type grpcStatus interface {
+				GRPCStatus() *status.Status
+			}
+			if s, ok := err.(grpcStatus); ok {
+				st := s.GRPCStatus()
+				for _, detail := range st.Details() {
+					if metadataStruct, ok := detail.(*structpb.Struct); ok {
+						for key, val := range metadataStruct.GetFields() {
+							metadata = append(metadata, key, val.AsInterface())
+						}
+					}
+				}
+			}
 		}
 		// move to the next error in the chain
 		err = errors.Unwrap(err)

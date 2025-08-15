@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestError(t *testing.T) {
@@ -54,6 +55,24 @@ func TestGRPCStatus(t *testing.T) {
 	grpcErr := status.Error(codes.NotFound, "item not found")
 	expectedGrpcStatus, ok := status.FromError(grpcErr)
 	require.True(t, ok)
+	// Create expected status with details for the metadata test
+	metadataStruct, err := structpb.NewStruct(map[string]any{"key": "value"})
+	require.NoError(t, err)
+	expectedGrpcStatusWithDetails, err := expectedGrpcStatus.WithDetails(metadataStruct)
+	require.NoError(t, err)
+
+	// Create expected status with details for the nested metadata test
+	nestedMetadataMap := map[string]any{
+		"outer_key": "outer_value",
+		"inner_key": "inner_value",
+	}
+	nestedMetadataStruct, err := structpb.NewStruct(nestedMetadataMap)
+	require.NoError(t, err)
+	expectedGrpcStatusWithNestedDetails, err := expectedGrpcStatus.WithDetails(nestedMetadataStruct)
+	require.NoError(t, err)
+
+	expectedUnknownStatusWithDetails, err := status.New(codes.Unknown, "plain error").WithDetails(metadataStruct)
+	require.NoError(t, err)
 
 	testCases := []struct {
 		name            string
@@ -87,21 +106,28 @@ func TestGRPCStatus(t *testing.T) {
 			name:            "standard error wrapped with metadata",
 			err:             WithMetadata(plainErr, "key", "value"),
 			expectedMessage: "plain error",
-			expectedStatus:  status.New(codes.Unknown, "plain error"),
-			expectOk:        false,
+			expectedStatus:  expectedUnknownStatusWithDetails,
+			expectOk:        true,
 		},
 		{
 			name:            "gRPC status error wrapped with metadata",
 			err:             WithMetadata(grpcErr, "key", "value"),
 			expectedMessage: "item not found",
-			expectedStatus:  expectedGrpcStatus,
+			expectedStatus:  expectedGrpcStatusWithDetails,
 			expectOk:        true,
 		},
 		{
 			name:            "gRPC status error wrapped with fmt.Errorf then metadata",
 			err:             WithMetadata(fmt.Errorf("wrapped: %w", grpcErr), "key", "value"),
 			expectedMessage: "item not found",
-			expectedStatus:  expectedGrpcStatus,
+			expectedStatus:  expectedGrpcStatusWithDetails,
+			expectOk:        true,
+		},
+		{
+			name:            "gRPC status error wrapped with nested metadata",
+			err:             WithMetadata(WithMetadata(grpcErr, "inner_key", "inner_value"), "outer_key", "outer_value"),
+			expectedMessage: "item not found",
+			expectedStatus:  expectedGrpcStatusWithNestedDetails,
 			expectOk:        true,
 		},
 	}
@@ -115,7 +141,24 @@ func TestGRPCStatus(t *testing.T) {
 				require.Nil(t, st)
 			} else {
 				require.NotNil(t, st)
-				require.Equal(t, tc.expectedStatus.Proto(), st.Proto())
+				// Comparing protobufs directly can be flaky if they contain maps, as the serialization order of map keys is not guaranteed.
+				// Instead, we perform a semantic comparison of the status components.
+				require.Equal(t, tc.expectedStatus.Code(), st.Code(), "gRPC status codes should be equal")
+				require.Equal(t, tc.expectedStatus.Message(), st.Message(), "gRPC status messages should be equal")
+
+				expectedDetails := tc.expectedStatus.Details()
+				actualDetails := st.Details()
+				require.Len(t, actualDetails, len(expectedDetails), "number of details should match")
+
+				if len(expectedDetails) > 0 {
+					// The Details() method returns the unmarshalled proto messages. We expect a *structpb.Struct.
+					// We type-assert the detail and then compare the underlying maps.
+					expectedStruct, ok := expectedDetails[0].(*structpb.Struct)
+					require.True(t, ok, "expected detail should be a *structpb.Struct")
+					actualStruct, ok := actualDetails[0].(*structpb.Struct)
+					require.True(t, ok, "actual detail should be a *structpb.Struct")
+					require.Equal(t, expectedStruct.AsMap(), actualStruct.AsMap(), "metadata maps should be equal")
+				}
 			}
 		})
 	}
@@ -320,6 +363,15 @@ func TestUnwrap(t *testing.T) {
 
 func TestGetMetadata(t *testing.T) {
 	rootError := errors.New("this is root error")
+
+	// Create a gRPC status with metadata in details to simulate an error from a gRPC call
+	st := status.New(codes.Internal, "internal error")
+	metadataStruct, err := structpb.NewStruct(map[string]any{"grpc_key": "grpc_value"})
+	require.NoError(t, err)
+	stWithDetails, err := st.WithDetails(metadataStruct)
+	require.NoError(t, err)
+	grpcErrorWithDetails := stWithDetails.Err()
+
 	testCases := []struct {
 		name     string
 		err      error
@@ -374,6 +426,16 @@ func TestGetMetadata(t *testing.T) {
 			name:     "error wrapped with metadata is at the beginning and end of the chain",
 			err:      WithMetadata(fmt.Errorf("foo: %w", WithMetadata(rootError, "k1", "v1")), "k2", "v2"),
 			expected: []any{"k2", "v2", "k1", "v1"},
+		},
+		{
+			name:     "error with metadata in gRPC status details",
+			err:      grpcErrorWithDetails,
+			expected: []any{"grpc_key", "grpc_value"},
+		},
+		{
+			name:     "error wrapped with metadata and has gRPC status details",
+			err:      WithMetadata(grpcErrorWithDetails, "wrapper_key", "wrapper_value"),
+			expected: []any{"wrapper_key", "wrapper_value", "grpc_key", "grpc_value"},
 		},
 	}
 	for _, tc := range testCases {
