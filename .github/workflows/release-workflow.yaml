@@ -35,7 +35,6 @@ jobs:
       - name: Publish Release Notes
         uses: release-drafter/release-drafter@34d80673e067bdc0c24568d3af899c216adcfaa9 # v7.7.0
         with:
-          disable-autolabeler: true
           commitish: ${{ github.ref }}
           tag: ${{ steps.extract_build_info.outputs.tag }}
           publish: true
