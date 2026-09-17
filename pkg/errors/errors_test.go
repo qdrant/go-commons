@@ -13,6 +13,17 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+const (
+	testErrWithoutWrapping = "error without wrapping"
+	testItemNotFound       = "item not found"
+	testOuterValue         = "outer_value"
+	testReusedKey          = "reused_key"
+	testSharedKey          = "shared_key"
+	testMissing            = "<missing>"
+	testGRPCKey            = "grpc_key"
+	testGRPCValue          = "grpc_value"
+)
+
 func TestError(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -20,7 +31,7 @@ func TestError(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "error without wrapping",
+			name:     testErrWithoutWrapping,
 			err:      errors.New("foo"),
 			expected: "foo",
 		},
@@ -36,12 +47,12 @@ func TestError(t *testing.T) {
 		},
 		{
 			name:     "gRPC status error",
-			err:      status.Error(codes.NotFound, "item not found"),
+			err:      status.Error(codes.NotFound, testItemNotFound),
 			expected: "rpc error: code = NotFound desc = item not found",
 		},
 		{
 			name:     "wrapped gRPC status error",
-			err:      WithMetadata(status.Error(codes.NotFound, "item not found"), "key", "value"),
+			err:      WithMetadata(status.Error(codes.NotFound, testItemNotFound), "key", "value"),
 			expected: "rpc error: code = NotFound desc = item not found",
 		},
 	}
@@ -55,7 +66,7 @@ func TestError(t *testing.T) {
 func TestGRPCStatus(t *testing.T) {
 	// Note adding the qdrantMetadataMarker is for internal testing only, it's transparent for the actual user.
 	plainErr := errors.New("plain error")
-	grpcErr := status.Error(codes.NotFound, "item not found")
+	grpcErr := status.Error(codes.NotFound, testItemNotFound)
 	expectedGrpcStatus, ok := status.FromError(grpcErr)
 	require.True(t, ok)
 	// Create expected status with details for the metadata test
@@ -69,7 +80,7 @@ func TestGRPCStatus(t *testing.T) {
 
 	// Create expected status with details for the nested metadata test
 	nestedMetadataMap := map[string]any{
-		"outer_key":          "outer_value",
+		"outer_key":          testOuterValue,
 		"inner_key":          "inner_value",
 		qdrantMetadataMarker: true,
 	}
@@ -80,7 +91,7 @@ func TestGRPCStatus(t *testing.T) {
 
 	// Create expected status for reused key test
 	reusedKeyMap := map[string]any{
-		"reused_key":         "outer_value", // The outer value should win
+		testReusedKey:        testOuterValue, // The outer value should win
 		qdrantMetadataMarker: true,
 	}
 	reusedKeyStruct, err := structpb.NewStruct(reusedKeyMap)
@@ -92,7 +103,7 @@ func TestGRPCStatus(t *testing.T) {
 	stRemote := status.New(codes.Aborted, "remote operation failed")
 	remoteMetaStruct, err := structpb.NewStruct(map[string]any{
 		"remote_key":         "remote_value",
-		"shared_key":         "remote_shared_value",
+		testSharedKey:        "remote_shared_value",
 		qdrantMetadataMarker: true,
 	})
 	require.NoError(t, err)
@@ -104,7 +115,7 @@ func TestGRPCStatus(t *testing.T) {
 	// The final map will have local keys and the remote key, with the local shared_key overwriting the remote one.
 	finalCombinedMap := map[string]any{
 		"remote_key":         "remote_value",
-		"shared_key":         "local_shared_value", // This one overwrites the remote one
+		testSharedKey:        "local_shared_value", // This one overwrites the remote one
 		"local_key":          "local_value",
 		qdrantMetadataMarker: true,
 	}
@@ -163,7 +174,7 @@ func TestGRPCStatus(t *testing.T) {
 		{
 			name:            "gRPC status error",
 			err:             grpcErr,
-			expectedMessage: "item not found",
+			expectedMessage: testItemNotFound,
 			expectedStatus:  expectedGrpcStatus,
 			expectOk:        true,
 		},
@@ -177,34 +188,34 @@ func TestGRPCStatus(t *testing.T) {
 		{
 			name:            "gRPC status error wrapped with metadata",
 			err:             WithMetadata(grpcErr, "key", "value"),
-			expectedMessage: "item not found",
+			expectedMessage: testItemNotFound,
 			expectedStatus:  expectedGrpcStatusWithDetails,
 			expectOk:        true,
 		},
 		{
 			name:            "gRPC status error wrapped with fmt.Errorf then metadata",
 			err:             WithMetadata(fmt.Errorf("wrapped: %w", grpcErr), "key", "value"),
-			expectedMessage: "item not found",
+			expectedMessage: testItemNotFound,
 			expectedStatus:  expectedGrpcStatusWithDetails,
 			expectOk:        true,
 		},
 		{
 			name:            "gRPC status error wrapped with nested metadata",
-			err:             WithMetadata(WithMetadata(grpcErr, "inner_key", "inner_value"), "outer_key", "outer_value"),
-			expectedMessage: "item not found",
+			err:             WithMetadata(WithMetadata(grpcErr, "inner_key", "inner_value"), "outer_key", testOuterValue),
+			expectedMessage: testItemNotFound,
 			expectedStatus:  expectedGrpcStatusWithNestedDetails,
 			expectOk:        true,
 		},
 		{
 			name:            "gRPC status error wrapped with reused metadata key",
-			err:             WithMetadata(WithMetadata(grpcErr, "reused_key", "inner_value"), "reused_key", "outer_value"),
-			expectedMessage: "item not found",
+			err:             WithMetadata(WithMetadata(grpcErr, testReusedKey, "inner_value"), testReusedKey, testOuterValue),
+			expectedMessage: testItemNotFound,
 			expectedStatus:  expectedStatusWithReusedKey,
 			expectOk:        true,
 		},
 		{
 			name:            "error with gRPC details wrapped with more metadata with overlapping keys",
-			err:             WithMetadata(remoteErrWithDetails, "local_key", "local_value", "shared_key", "local_shared_value"),
+			err:             WithMetadata(remoteErrWithDetails, "local_key", "local_value", testSharedKey, "local_shared_value"),
 			expectedMessage: "remote operation failed",
 			expectedStatus:  expectedFinalStatus,
 			expectOk:        true,
@@ -347,7 +358,7 @@ func TestWithMetadata(t *testing.T) {
 			newMetadata: []any{"k2", "v2"},
 			expected: &errWithMetadata{
 				err:      fooError,
-				metadata: []any{"k1", "<missing>", "k2", "v2"},
+				metadata: []any{"k1", testMissing, "k2", "v2"},
 			},
 		},
 		{
@@ -357,7 +368,7 @@ func TestWithMetadata(t *testing.T) {
 			newMetadata: []any{"k2"},
 			expected: &errWithMetadata{
 				err:      fooError,
-				metadata: []any{"k1", "v1", "k2", "<missing>"},
+				metadata: []any{"k1", "v1", "k2", testMissing},
 			},
 		},
 		{
@@ -367,7 +378,7 @@ func TestWithMetadata(t *testing.T) {
 			newMetadata: []any{"k2"},
 			expected: &errWithMetadata{
 				err:      fooError,
-				metadata: []any{"k1", "<missing>", "k2", "<missing>"},
+				metadata: []any{"k1", testMissing, "k2", testMissing},
 			},
 		},
 		{
@@ -413,7 +424,7 @@ func TestUnwrap(t *testing.T) {
 		expected error
 	}{
 		{
-			name:     "error without wrapping",
+			name:     testErrWithoutWrapping,
 			err:      errors.New("plain error"),
 			expected: nil,
 		},
@@ -458,7 +469,7 @@ func TestGetMetadata(t *testing.T) {
 	// Create a gRPC status with metadata in details to simulate an error from a gRPC call
 	st := status.New(codes.Internal, "internal error")
 	metadataStruct, err := structpb.NewStruct(map[string]any{
-		"grpc_key":           "grpc_value",
+		testGRPCKey:          testGRPCValue,
 		qdrantMetadataMarker: true,
 	})
 	require.NoError(t, err)
@@ -477,7 +488,7 @@ func TestGetMetadata(t *testing.T) {
 			expected: []any{},
 		},
 		{
-			name:     "error without wrapping",
+			name:     testErrWithoutWrapping,
 			err:      rootError,
 			expected: []any{},
 		},
@@ -503,10 +514,10 @@ func TestGetMetadata(t *testing.T) {
 		},
 		{
 			name: "error wrapped with reused key in metadata",
-			err:  WithMetadata(WithMetadata(rootError, "reused_key", "inner_value"), "reused_key", "outer_value"),
+			err:  WithMetadata(WithMetadata(rootError, testReusedKey, "inner_value"), testReusedKey, testOuterValue),
 			// The slice contains both pairs. When passed to a logger that uses the last value for a given key,
 			// "outer_value" will be the one that is logged, which is the desired behavior.
-			expected: []any{"reused_key", "inner_value", "reused_key", "outer_value"},
+			expected: []any{testReusedKey, "inner_value", testReusedKey, testOuterValue},
 		},
 		{
 			name:     "error wrapped in multiple levels with custom message",
@@ -531,17 +542,17 @@ func TestGetMetadata(t *testing.T) {
 		{
 			name:     "error with metadata in gRPC status details",
 			err:      grpcErrorWithDetails,
-			expected: []any{"grpc_key", "grpc_value"},
+			expected: []any{testGRPCKey, testGRPCValue},
 		},
 		{
 			name:     "error wrapped with metadata and has gRPC status details",
 			err:      WithMetadata(grpcErrorWithDetails, "wrapper_key", "wrapper_value"),
-			expected: []any{"grpc_key", "grpc_value", "wrapper_key", "wrapper_value"},
+			expected: []any{testGRPCKey, testGRPCValue, "wrapper_key", "wrapper_value"},
 		},
 		{
 			name:     "chained error with local and gRPC metadata with overlapping keys",
-			err:      WithMetadata(grpcErrorWithDetails, "local_key", "local_value", "shared_key", "local_shared_value"),
-			expected: []any{"grpc_key", "grpc_value", "local_key", "local_value", "shared_key", "local_shared_value"},
+			err:      WithMetadata(grpcErrorWithDetails, "local_key", "local_value", testSharedKey, "local_shared_value"),
+			expected: []any{testGRPCKey, testGRPCValue, "local_key", "local_value", testSharedKey, "local_shared_value"},
 		},
 	}
 	for _, tc := range testCases {
