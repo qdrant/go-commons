@@ -1,3 +1,2 @@
-# This team will own the entire repository
-* @qdrant/cloud-unit-platform
-* @qdrant/cloud-unit-regions-clusters
+# These teams own the entire repository
+* @qdrant/cloud-unit-platform @qdrant/cloud-unit-regions-clusters
